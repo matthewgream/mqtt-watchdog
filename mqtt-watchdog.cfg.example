@@ -1,0 +1,25 @@
+
+mqtt-client=mqtt-watchdog
+mqtt-server=mqtt://localhost
+
+email-name=Weather Watchdog
+email-from=no-reply@hostname.tld
+email-to=user@gmail.com
+email-subject=Weather Watchdog MQTT
+email-smtp=smtps://smtp.gmail.com:465
+email-username=user@gmail.com
+email-password=xxxx xxxx xxxx xxxx
+email-use-ssl=true
+
+debug=false
+
+topic.0.name=snapshots/metadata
+topic.0.service=snapshots-publisher.service
+topic.0.warning=120
+topic.0.restart=600
+
+topic.1.name=sensors/radiation
+topic.1.service=gqgmctomqtt.service
+topic.1.warning=120
+topic.1.restart=600
+

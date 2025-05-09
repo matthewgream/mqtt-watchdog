@@ -1,0 +1,15 @@
+[Unit]
+Description=MQTT watchdog
+Wants=network-online.target
+After=network-online.target mosquitto.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+ExecStart=/opt/mqtt-watchdog/mqtt-watchdog --config /opt/mqtt-watchdog/mqtt-watchdog.cfg
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+
