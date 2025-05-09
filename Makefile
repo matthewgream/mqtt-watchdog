@@ -18,9 +18,8 @@ format:
 	clang-format -i *.c include/*.h
 test: $(TARGET)
 	./$(TARGET)
-watch:
-	journalctl -u $(TARGET) -f
-.PHONY: all clean format test watch
+
+.PHONY: all clean format test
 
 ##
 
@@ -37,5 +36,10 @@ endef
 install_systemd_service: $(TARGET).service
 	$(call install_systemd_service,$(TARGET),$(TARGET))
 install:  install_systemd_service
+watch:
+	journalctl -u $(TARGET) -f
+restart:
+	systemctl restart $(TARGET)
 .PHONY: install install_systemd_service
+.PHONY: watch restart
 

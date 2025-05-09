@@ -21,17 +21,19 @@
 #define MQTT_CLIENT_DEFAULT "mqtt-watchdog"
 #define MQTT_SERVER_DEFAULT "mqtt://localhost"
 
-#define EMAIL_NAME_DEFAULT "MQTT Watchdog"
-#define EMAIL_FROM_DEFAULT "no-reply@localhost"
-#define EMAIL_TO_DEFAULT ""
-#define EMAIL_SUBJECT_DEFAULT "MQTT Watchdog Alert"
 #define EMAIL_SMTP_DEFAULT "smtp://localhost:25"
 #define EMAIL_USERNAME_DEFAULT ""
 #define EMAIL_PASSWORD_DEFAULT ""
 #define EMAIL_USE_SSL_DEFAULT false
+#define EMAIL_NAME_DEFAULT "MQTT Watchdog"
+#define EMAIL_FROM_DEFAULT "no-reply@localhost"
+#define EMAIL_TO_DEFAULT ""
+#define EMAIL_SUBJECT_DEFAULT "MQTT Watchdog Alert"
 
 #define TOPIC_TIMEOUT_LEVEL1_DEFAULT 60
 #define TOPIC_TIMEOUT_LEVEL2_DEFAULT 300
+
+#define REPORT_PERIOD_DEFAULT 150
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -67,8 +69,8 @@ typedef struct {
     const char *username;
     const char *password;
     bool use_ssl;
-    const char *from;
     const char *name;
+    const char *from;
     const char *to;
     const char *subject;
 } EmailConfig;
@@ -90,8 +92,8 @@ bool action_email_config() {
     emailConfig.username = config_get_string("email-username", EMAIL_USERNAME_DEFAULT);
     emailConfig.password = config_get_string("email-password", EMAIL_PASSWORD_DEFAULT);
     emailConfig.use_ssl = config_get_bool("email-use-ssl", EMAIL_USE_SSL_DEFAULT);
-    emailConfig.from = config_get_string("email-from", EMAIL_NAME_DEFAULT);
     emailConfig.name = config_get_string("email-name", EMAIL_FROM_DEFAULT);
+    emailConfig.from = config_get_string("email-from", EMAIL_NAME_DEFAULT);
     emailConfig.to = config_get_string("email-to", EMAIL_TO_DEFAULT);
     emailConfig.subject = config_get_string("email-subject", EMAIL_SUBJECT_DEFAULT);
     return true;
@@ -274,25 +276,28 @@ void topic_end() {
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
-#define NOTIFY_INTERVAL 30
-time_t notify_last = 0;
+time_t report_period, report_last = 0;
 
 const struct option config_options[] = {{"config", required_argument, 0, 0},      // config
                                         {"mqtt-client", required_argument, 0, 0}, // mqtt
                                         {"mqtt-server", required_argument, 0, 0},
-                                        {"email-from", required_argument, 0, 0}, // email
+                                        {"email-name", required_argument, 0, 0}, // email
+                                        {"email-from", required_argument, 0, 0},
                                         {"email-to", required_argument, 0, 0},
                                         {"email-subject", required_argument, 0, 0},
                                         {"email-smtp", required_argument, 0, 0},
                                         {"email-username", required_argument, 0, 0},
                                         {"email-password", required_argument, 0, 0},
                                         {"email-use-ssl", required_argument, 0, 0},
-                                        {"debug", required_argument, 0, 0}, // debug
+                                        {"report-period", required_argument, 0, 0}, // report
+                                        {"debug", required_argument, 0, 0},         // debug
                                         {0, 0, 0, 0}};
 
 bool config(const int argc, const char *argv[]) {
     if (!config_load(CONFIG_FILE_DEFAULT, argc, argv, config_options))
         return false;
+    report_period = (time_t)config_get_integer("report-period", REPORT_PERIOD_DEFAULT);
+    printf("report-period=%ld\n", report_period);
     return mqtt_config() && topic_config() && action_email_config() && action_systemd_config();
 }
 bool startup() {
@@ -308,7 +313,7 @@ void cleanup() {
 }
 bool process() {
     const bool result = topic_process();
-    if (intervalable(NOTIFY_INTERVAL, &notify_last)) {
+    if (intervalable(report_period, &report_last)) {
         char string[1024];
         if (topic_stats_to_string(string, sizeof(string)))
             printf("notify: %s\n", string);

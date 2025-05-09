@@ -11,6 +11,7 @@ email-username=user@gmail.com
 email-password=xxxx xxxx xxxx xxxx
 email-use-ssl=true
 
+report-period=150
 debug=false
 
 topic.0.name=snapshots/metadata
