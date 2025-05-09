@@ -137,6 +137,7 @@ typedef struct {
 TopicMonitor topic_monitors[MAX_TOPICS];
 size_t topic_monitor_count = 0;
 bool topic_debug = false;
+unsigned long topic_timeout_level1 = 0, topic_timeout_level2 = 0;
 
 void topic_receive_message(const char *topic) {
     for (size_t i = 0; i < topic_monitor_count; i++) {
@@ -149,8 +150,6 @@ void topic_receive_message(const char *topic) {
         }
     }
 }
-unsigned long topic_timeout_level1 = 0, topic_timeout_level2 = 0;
-
 bool topic_process() {
     char subject[256];
     const time_t now = time(NULL);
@@ -184,7 +183,6 @@ bool topic_process() {
     }
     return true;
 }
-
 bool topic_stats_to_string(char *buffer, size_t size) {
     size_t offset = snprintf(buffer, size, "L1=%lu, L2=%lu: ", topic_timeout_level1, topic_timeout_level2);
     for (size_t i = 0; i < topic_monitor_count; i++) {
@@ -211,7 +209,6 @@ bool topic_stats_to_string(char *buffer, size_t size) {
     }
     return true;
 }
-
 bool topic_config() {
     char buffer[64];
     topic_monitor_count = 0;
@@ -280,10 +277,18 @@ void topic_end() {
 #define NOTIFY_INTERVAL 30
 time_t notify_last = 0;
 
-const struct option config_options[] = {{"config", required_argument, 0, 0},        {"mqtt-client", required_argument, 0, 0},    {"mqtt-server", required_argument, 0, 0},
-                                        {"email-from", required_argument, 0, 0},    {"email-to", required_argument, 0, 0},       {"email-subject", required_argument, 0, 0},
-                                        {"email-smtp", required_argument, 0, 0},    {"email-username", required_argument, 0, 0}, {"email-password", required_argument, 0, 0},
-                                        {"email-use-ssl", required_argument, 0, 0}, {"debug", required_argument, 0, 0},          {0, 0, 0, 0}};
+const struct option config_options[] = {{"config", required_argument, 0, 0},      // config
+                                        {"mqtt-client", required_argument, 0, 0}, // mqtt
+                                        {"mqtt-server", required_argument, 0, 0},
+                                        {"email-from", required_argument, 0, 0}, // email
+                                        {"email-to", required_argument, 0, 0},
+                                        {"email-subject", required_argument, 0, 0},
+                                        {"email-smtp", required_argument, 0, 0},
+                                        {"email-username", required_argument, 0, 0},
+                                        {"email-password", required_argument, 0, 0},
+                                        {"email-use-ssl", required_argument, 0, 0},
+                                        {"debug", required_argument, 0, 0}, // debug
+                                        {0, 0, 0, 0}};
 
 bool config(const int argc, const char *argv[]) {
     if (!config_load(CONFIG_FILE_DEFAULT, argc, argv, config_options))

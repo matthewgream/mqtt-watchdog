@@ -18,7 +18,9 @@ format:
 	clang-format -i *.c include/*.h
 test: $(TARGET)
 	./$(TARGET)
-.PHONY: all clean format test lint
+watch:
+	journalctl -u $(TARGET) -f
+.PHONY: all clean format test watch
 
 ##
 
