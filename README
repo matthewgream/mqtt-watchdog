@@ -6,3 +6,5 @@ Watchdog service for MQTT topics to alert (via. email) on inactivity thresholds,
   (a) level 1 threshold, issue alert email notification
   (b) level 2 threshold, issue alert email notification and trigger systemd service restart
 (3) output periodic stats
+
+

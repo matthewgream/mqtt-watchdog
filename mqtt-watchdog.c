@@ -131,15 +131,15 @@ typedef struct {
     bool warned;                   // Flag to track if warning has been sent
     bool restarted;                // Flag to track if service has been restarted
                                    //
-    unsigned long level1_timeouts; // Count of level 1 timeouts for this topic
-    unsigned long level2_timeouts; // Count of level 2 timeouts for this topic
-    time_t last_level1_time;       // Timestamp of last level 1 timeout
-    time_t last_level2_time;       // Timestamp of last level 2 timeout
+    unsigned long level1_timeouts; // Level 1 timeout count
+    unsigned long level2_timeouts; // Level 2 timeout count
+    time_t level1_timelast;        // Level 1 timestamp last
+    time_t level2_timelast;        // Level 2 timestamp last
 } TopicMonitor;
 TopicMonitor topic_monitors[MAX_TOPICS];
 size_t topic_monitor_count = 0;
 bool topic_debug = false;
-unsigned long topic_timeout_level1 = 0, topic_timeout_level2 = 0;
+unsigned long topic_level1_timeouts = 0, topic_level2_timeouts = 0;
 
 void topic_receive_message(const char *topic) {
     for (size_t i = 0; i < topic_monitor_count; i++) {
@@ -167,8 +167,8 @@ bool topic_process() {
             monitor->warned = true;
             monitor->restarted = true;
             monitor->level2_timeouts++;
-            monitor->last_level2_time = now;
-            topic_timeout_level2++;
+            monitor->level2_timelast = now;
+            topic_level2_timeouts++;
         }
         // Level 1
         else if (seconds_since_last >= monitor->warning_seconds && !monitor->warned) {
@@ -177,8 +177,8 @@ bool topic_process() {
             action_email_notification(subject, "");
             monitor->warned = true;
             monitor->level1_timeouts++;
-            monitor->last_level1_time = now;
-            topic_timeout_level1++;
+            monitor->level1_timelast = now;
+            topic_level1_timeouts++;
         }
         if (seconds_since_last < monitor->warning_seconds)
             monitor->warned = monitor->restarted = false;
@@ -186,7 +186,7 @@ bool topic_process() {
     return true;
 }
 bool topic_stats_to_string(char *buffer, size_t size) {
-    size_t offset = snprintf(buffer, size, "L1=%lu, L2=%lu: ", topic_timeout_level1, topic_timeout_level2);
+    size_t offset = snprintf(buffer, size, "L1=%lu, L2=%lu: ", topic_level1_timeouts, topic_level2_timeouts);
     for (size_t i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
         offset += snprintf(buffer + offset, size - offset, "%s%s", (i == 0 ? "" : ", "), monitor->topic);
@@ -194,13 +194,13 @@ bool topic_stats_to_string(char *buffer, size_t size) {
             offset += snprintf(buffer + offset, size - offset, " (");
             if (monitor->level1_timeouts > 0) {
                 offset += snprintf(buffer + offset, size - offset, "L1=%lu/", monitor->level1_timeouts);
-                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->last_level1_time));
+                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level1_timelast));
             }
             if (monitor->level2_timeouts > 0) {
                 if (monitor->level1_timeouts > 0)
                     offset += snprintf(buffer + offset, size - offset, ", ");
                 offset += snprintf(buffer + offset, size - offset, "L2=%lu/", monitor->level2_timeouts);
-                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->last_level2_time));
+                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level2_timelast));
             }
             offset += snprintf(buffer + offset, size - offset, ")");
         }
@@ -234,8 +234,8 @@ bool topic_config() {
         monitor->restarted = false;
         monitor->level1_timeouts = 0;
         monitor->level2_timeouts = 0;
-        monitor->last_level1_time = 0;
-        monitor->last_level2_time = 0;
+        monitor->level1_timelast = 0;
+        monitor->level2_timelast = 0;
         printf("topic: monitoring '%s' (warning=%lds, restart=%lds, service=%s)\n", monitor->topic, monitor->warning_seconds, monitor->restart_seconds,
                monitor->service_name ? monitor->service_name : "n/a");
         if (++topic_monitor_count >= MAX_TOPICS) {
