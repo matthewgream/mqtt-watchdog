@@ -1,0 +1,8 @@
+Watchdog service for MQTT topics to alert (via. email) on inactivity thresholds, taking action (systemd service restart) if required.
+
+(0) read config file, and issue start up email notification 
+(1) monitor configured topics for messages: track reception/timestamp
+(2) if no message received on topic by
+  (a) level 1 threshold, issue alert email notification
+  (b) level 2 threshold, issue alert email notification and trigger systemd service restart
+(3) output periodic stats
