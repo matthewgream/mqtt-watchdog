@@ -116,7 +116,7 @@ bool action_systemd_service_restart(const char *service_name) {
 }
 bool action_systemd_config() { return true; }
 bool action_systemd_begin() { return true; }
-void action_systemd_end() { }
+void action_systemd_end() {}
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -217,17 +217,17 @@ bool topic_config() {
     topic_debug = config_get_bool("debug", false);
     const time_t now = time(NULL);
     for (size_t i = 0; i < MAX_TOPICS; i++) {
-        snprintf(buffer, sizeof(buffer), "topic.%d.name", i);
+        snprintf(buffer, sizeof(buffer), "topic.%d.name", (int)i);
         const char *topic = config_get_string(buffer, NULL);
         if (topic == NULL)
             continue;
         TopicMonitor *monitor = &topic_monitors[topic_monitor_count];
         monitor->topic = topic;
-        snprintf(buffer, sizeof(buffer), "topic.%d.service", i);
+        snprintf(buffer, sizeof(buffer), "topic.%d.service", (int)i);
         monitor->service_name = config_get_string(buffer, NULL);
-        snprintf(buffer, sizeof(buffer), "topic.%d.warning", i);
+        snprintf(buffer, sizeof(buffer), "topic.%d.warning", (int)i);
         monitor->warning_seconds = (time_t)config_get_integer(buffer, TOPIC_TIMEOUT_LEVEL1_DEFAULT);
-        snprintf(buffer, sizeof(buffer), "topic.%d.restart", i);
+        snprintf(buffer, sizeof(buffer), "topic.%d.restart", (int)i);
         monitor->restart_seconds = (time_t)config_get_integer(buffer, TOPIC_TIMEOUT_LEVEL2_DEFAULT);
         monitor->last_message = now;
         monitor->warned = false;
@@ -316,7 +316,7 @@ bool process() {
     if (intervalable(report_period, &report_last)) {
         char string[1024];
         if (topic_stats_to_string(string, sizeof(string)))
-            printf("notify: %s\n", string);
+            printf("report: %s\n", string);
     }
     return result;
 }
@@ -350,7 +350,8 @@ int main(const int argc, const char *argv[]) {
             cleanup();
             return EXIT_FAILURE;
         }
-        sleep(PROCESS_INTERVAL);
+        for (int i = 0; i < PROCESS_INTERVAL && running; i++)
+            sleep(1);
     }
     cleanup();
     return EXIT_SUCCESS;
