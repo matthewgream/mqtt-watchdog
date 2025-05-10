@@ -33,6 +33,8 @@
 #define TOPIC_TIMEOUT_LEVEL1_DEFAULT 60
 #define TOPIC_TIMEOUT_LEVEL2_DEFAULT 300
 
+#define SERVICE_NAME_DEFAULT ""
+
 #define REPORT_PERIOD_DEFAULT 300
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -224,7 +226,7 @@ bool topic_config() {
         TopicMonitor *monitor = &topic_monitors[topic_monitor_count];
         monitor->topic = topic;
         snprintf(buffer, sizeof(buffer), "topic.%d.service", (int)i);
-        monitor->service_name = config_get_string(buffer, NULL);
+        monitor->service_name = config_get_string(buffer, SERVICE_NAME_DEFAULT);
         snprintf(buffer, sizeof(buffer), "topic.%d.warning", (int)i);
         monitor->warning_seconds = (time_t)config_get_integer(buffer, TOPIC_TIMEOUT_LEVEL1_DEFAULT);
         snprintf(buffer, sizeof(buffer), "topic.%d.restart", (int)i);
