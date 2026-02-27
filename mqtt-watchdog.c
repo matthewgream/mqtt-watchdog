@@ -54,7 +54,7 @@
 
 MqttConfig mqttConfig;
 
-bool mqtt_config() {
+bool mqtt_config(void) {
     mqttConfig.server = config_get_string("mqtt-server", MQTT_SERVER_DEFAULT);
     mqttConfig.client = config_get_string("mqtt-client", MQTT_CLIENT_DEFAULT);
     mqttConfig.debug = config_get_bool("debug", false);
@@ -89,7 +89,7 @@ bool action_email_notification(const char *topic, const char *content) {
     printf("email: send notification issued, to '%s'\n", emailConfig.to);
     return true;
 }
-bool action_email_config() {
+bool action_email_config(void) {
     emailConfig.smtp = config_get_string("email-smtp", EMAIL_SMTP_DEFAULT);
     emailConfig.username = config_get_string("email-username", EMAIL_USERNAME_DEFAULT);
     emailConfig.password = config_get_string("email-password", EMAIL_PASSWORD_DEFAULT);
@@ -100,8 +100,8 @@ bool action_email_config() {
     emailConfig.subject = config_get_string("email-subject", EMAIL_SUBJECT_DEFAULT);
     return true;
 }
-bool action_email_begin() { return true; }
-void action_email_end() {}
+bool action_email_begin(void) { return true; }
+void action_email_end(void) {}
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -116,9 +116,9 @@ bool action_systemd_service_restart(const char *service_name) {
     printf("systemd: service restarted, for '%s'\n", service_name);
     return true;
 }
-bool action_systemd_config() { return true; }
-bool action_systemd_begin() { return true; }
-void action_systemd_end() {}
+bool action_systemd_config(void) { return true; }
+bool action_systemd_begin(void) { return true; }
+void action_systemd_end(void) {}
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -139,12 +139,12 @@ typedef struct {
     time_t level2_timelast;        // Level 2 timestamp last
 } TopicMonitor;
 TopicMonitor topic_monitors[MAX_TOPICS];
-size_t topic_monitor_count = 0;
+int topic_monitor_count = 0;
 bool topic_debug = false;
 unsigned long topic_level1_timeouts = 0, topic_level2_timeouts = 0;
 
 void topic_receive_message(const char *topic) {
-    for (size_t i = 0; i < topic_monitor_count; i++) {
+    for (int i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
         if (strcmp(monitor->topic, topic) == 0) {
             monitor->last_message = time(NULL);
@@ -154,10 +154,10 @@ void topic_receive_message(const char *topic) {
         }
     }
 }
-bool topic_process() {
+bool topic_process(void) {
     char subject[256];
     const time_t now = time(NULL);
-    for (size_t i = 0; i < topic_monitor_count; i++) {
+    for (int i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
         const time_t seconds_since_last = now - monitor->last_message;
         // Level 2
@@ -188,23 +188,23 @@ bool topic_process() {
     return true;
 }
 bool topic_stats_to_string(char *buffer, size_t size) {
-    size_t offset = snprintf(buffer, size, "L1=%lu, L2=%lu: ", topic_level1_timeouts, topic_level2_timeouts);
-    for (size_t i = 0; i < topic_monitor_count; i++) {
+    size_t offset = (size_t)snprintf(buffer, size, "L1=%lu, L2=%lu: ", topic_level1_timeouts, topic_level2_timeouts);
+    for (int i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
-        offset += snprintf(buffer + offset, size - offset, "%s%s", (i == 0 ? "" : ", "), monitor->topic);
+        offset += (size_t)snprintf(buffer + offset, size - offset, "%s%s", (i == 0 ? "" : ", "), monitor->topic);
         if (monitor->level1_timeouts > 0 || monitor->level2_timeouts > 0) {
-            offset += snprintf(buffer + offset, size - offset, " (");
+            offset += (size_t)snprintf(buffer + offset, size - offset, " (");
             if (monitor->level1_timeouts > 0) {
-                offset += snprintf(buffer + offset, size - offset, "L1=%lu/", monitor->level1_timeouts);
-                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level1_timelast));
+                offset += (size_t)snprintf(buffer + offset, size - offset, "L1=%lu/", monitor->level1_timeouts);
+                offset += (size_t)strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level1_timelast));
             }
             if (monitor->level2_timeouts > 0) {
                 if (monitor->level1_timeouts > 0)
-                    offset += snprintf(buffer + offset, size - offset, ", ");
-                offset += snprintf(buffer + offset, size - offset, "L2=%lu/", monitor->level2_timeouts);
-                offset += strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level2_timelast));
+                    offset += (size_t)snprintf(buffer + offset, size - offset, ", ");
+                offset += (size_t)snprintf(buffer + offset, size - offset, "L2=%lu/", monitor->level2_timeouts);
+                offset += (size_t)strftime(buffer + offset, size - offset, "%Y-%m-%dT%H:%M:%S", localtime(&monitor->level2_timelast));
             }
-            offset += snprintf(buffer + offset, size - offset, ")");
+            offset += (size_t)snprintf(buffer + offset, size - offset, ")");
         }
         if (offset >= size - 1) {
             buffer[size - 1] = '\0';
@@ -213,7 +213,7 @@ bool topic_stats_to_string(char *buffer, size_t size) {
     }
     return true;
 }
-bool topic_config() {
+bool topic_config(void) {
     char buffer[64];
     topic_monitor_count = 0;
     topic_debug = config_get_bool("debug", false);
@@ -251,14 +251,14 @@ bool topic_config() {
     }
     return true;
 }
-bool topic_begin() {
+bool topic_begin(void) {
     if (!action_email_notification("Startup", "")) {
         fprintf(stderr, "topic: failed send startup email\n");
         return false;
     }
     if (!mqtt_message_callback_register(topic_receive_message))
         return false;
-    for (size_t i = 0; i < topic_monitor_count; i++) {
+    for (int i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
         if (!mqtt_subscribe(monitor->topic)) {
             fprintf(stderr, "topic: failed to subscribe to '%s'\n", monitor->topic);
@@ -267,9 +267,9 @@ bool topic_begin() {
     }
     return true;
 }
-void topic_end() {
+void topic_end(void) {
     mqtt_message_callback_cancel();
-    for (size_t i = 0; i < topic_monitor_count; i++) {
+    for (int i = 0; i < topic_monitor_count; i++) {
         TopicMonitor *monitor = &topic_monitors[i];
         mqtt_unsubscribe(monitor->topic);
     }
@@ -295,25 +295,25 @@ const struct option config_options[] = {{"config", required_argument, 0, 0},    
                                         {"debug", required_argument, 0, 0},         // debug
                                         {0, 0, 0, 0}};
 
-bool config(const int argc, const char *argv[]) {
+bool config(int argc, char *argv[]) {
     if (!config_load(CONFIG_FILE_DEFAULT, argc, argv, config_options))
         return false;
     report_period = (time_t)config_get_integer("report-period", REPORT_PERIOD_DEFAULT);
     printf("report-period=%ld\n", report_period);
     return mqtt_config() && topic_config() && action_email_config() && action_systemd_config();
 }
-bool startup() {
+bool startup(void) {
     curl_global_init(CURL_GLOBAL_ALL);
     return mqtt_begin(&mqttConfig) && action_email_begin() && action_systemd_begin() && topic_begin();
 }
-void cleanup() {
+void cleanup(void) {
     topic_end();
     action_systemd_end();
     action_email_end();
     mqtt_end();
     curl_global_cleanup();
 }
-bool process() {
+bool process(void) {
     const bool result = topic_process();
     if (intervalable(report_period, &report_last)) {
         char string[1024];
@@ -336,7 +336,7 @@ void signal_handler(const int sig __attribute__((unused))) {
     }
 }
 
-int main(const int argc, const char *argv[]) {
+int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     printf("starting\n");
     signal(SIGINT, signal_handler);

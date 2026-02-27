@@ -28,15 +28,15 @@ bool email_send(const char *server, const char *username, const char *password, 
                 const char *content) {
     bool result = false;
     char payload[4096] = {0};
-    size_t payload_size = snprintf(payload, sizeof(payload),
-                                   "From: %s <%s>\r\n"
-                                   "To: %s\r\n"
-                                   "Subject: %s\r\n"
-                                   "MIME-Version: 1.0\r\n"
-                                   "Content-Type: text/plain; charset=UTF-8\r\n"
-                                   "\r\n"
-                                   "%s\r\n",
-                                   name, from, to, subject, content);
+    size_t payload_size = (size_t)snprintf(payload, sizeof(payload),
+                                           "From: %s <%s>\r\n"
+                                           "To: %s\r\n"
+                                           "Subject: %s\r\n"
+                                           "MIME-Version: 1.0\r\n"
+                                           "Content-Type: text/plain; charset=UTF-8\r\n"
+                                           "\r\n"
+                                           "%s\r\n",
+                                           name, from, to, subject, content);
     if (payload_size >= sizeof(payload)) {
         fprintf(stderr, "email_send: payload too large, sending truncated\n");
         /* ignore */

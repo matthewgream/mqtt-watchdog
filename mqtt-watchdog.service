@@ -6,7 +6,7 @@ Requires=mosquitto.service
 
 [Service]
 Type=simple
-ExecStart=/opt/mqtt-watchdog/mqtt-watchdog --config /opt/mqtt-watchdog/mqtt-watchdog.cfg
+ExecStart=/usr/local/bin/mqtt-watchdog --config /etc/default/mqtt-watchdog
 Restart=on-failure
 RestartSec=5s
 
