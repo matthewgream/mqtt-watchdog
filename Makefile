@@ -44,7 +44,7 @@ test: $(TARGET)
 
 ##
 
-INSTALL=$(TARGET)
+INSTALL=watchdogmqtt
 DIR_INSTALL=/usr/local/bin
 DIR_DEFAULT=/etc/default
 DIR_SYSTEMD=/etc/systemd/system
