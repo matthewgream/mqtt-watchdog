@@ -21,6 +21,7 @@ CFLAGS=$(CFLAGS_COMMON) $(CFLAGS_STRICT) $(CFLAGS_DEFINES) $(CFLAGS_OPT) $(CFLAG
 LDFLAGS=
 LIBS=-lmosquitto -lcurl -lsystemd
 HOSTNAME=$(shell hostname)
+CFG_SRC := $(if $(wildcard $(TARGET).$(HOSTNAME).cfg),$(TARGET).$(HOSTNAME).cfg,$(TARGET).cfg)
 
 ##
 
@@ -58,8 +59,9 @@ define install_service_systemd
 endef
 install_target: $(TARGET)
 	install -m 755 $(TARGET) $(DIR_INSTALL)/$(INSTALL)
-install_default: $(TARGET).cfg
-	install -m 644 $(TARGET).cfg $(DIR_DEFAULT)/$(INSTALL)
+install_default: $(CFG_SRC)
+	@echo "installing config from $(CFG_SRC)"
+	install -m 644 $(CFG_SRC) $(DIR_DEFAULT)/$(INSTALL)
 install_service: $(TARGET).service
 	$(call install_service_systemd,$(TARGET),$(INSTALL))
 install: install_target install_default install_service
