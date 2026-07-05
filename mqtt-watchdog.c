@@ -314,6 +314,7 @@ void cleanup(void) {
     curl_global_cleanup();
 }
 bool process(void) {
+    mqtt_poll();
     const bool result = topic_process();
     if (intervalable(report_period, &report_last)) {
         char string[1024];

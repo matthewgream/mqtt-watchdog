@@ -33,9 +33,33 @@ typedef struct {
 #define MQTT_SUBSCRIBE_QOS 0
 #endif
 
+#ifndef MQTT_MAX_SUBSCRIPTIONS
+#define MQTT_MAX_SUBSCRIPTIONS 64
+#endif
+#ifndef MQTT_RECONNECT_DELAY
+#define MQTT_RECONNECT_DELAY 2
+#endif
+#ifndef MQTT_RECONNECT_DELAY_MAX
+#define MQTT_RECONNECT_DELAY_MAX 30
+#endif
+
 bool mosq_debug = false;
 struct mosquitto *mosq = NULL;
 mqtt_callback_data *mosq_callback_data = NULL;
+
+// Subscriptions are recorded here and (re)applied from the connect callback so they
+// survive reconnects and don't depend on the broker being reachable at startup.
+static const char *mqtt_subscriptions[MQTT_MAX_SUBSCRIPTIONS];
+static int mqtt_subscription_count = 0;
+static volatile bool mqtt_connected = false;
+
+static void mqtt_subscribe_apply(const char *topic) {
+    const int result = mosquitto_subscribe(mosq, NULL, topic, MQTT_SUBSCRIBE_QOS);
+    if (result != MOSQ_ERR_SUCCESS)
+        fprintf(stderr, "mqtt: subscribe failed '%s': %s\n", topic, mosquitto_strerror(result));
+    else
+        printf("mqtt: subscribed '%s' (QoS %d)\n", topic, MQTT_SUBSCRIBE_QOS);
+}
 
 bool mqtt_parse(const char *string, char *host, const int length, int *port, bool *ssl) {
     host[0] = '\0';
@@ -65,7 +89,19 @@ void mqtt_connect_callback(struct mosquitto *m, void *o __attribute__((unused)),
         fprintf(stderr, "mqtt: connect failed: %s\n", mosquitto_connack_string(r));
         return;
     }
+    mqtt_connected = true;
     printf("mqtt: connected\n");
+    // (Re)subscribe on every successful connect so monitoring resumes after reconnects.
+    for (int i = 0; i < mqtt_subscription_count; i++)
+        mqtt_subscribe_apply(mqtt_subscriptions[i]);
+}
+
+void mqtt_disconnect_callback(struct mosquitto *m, void *o __attribute__((unused)), int rc) {
+    if (m != mosq)
+        return;
+    mqtt_connected = false;
+    if (mosq_debug)
+        printf("mqtt: disconnected (rc=%d)\n", rc);
 }
 
 bool mqtt_begin(const MqttConfig *config) {
@@ -90,12 +126,14 @@ bool mqtt_begin(const MqttConfig *config) {
     if (ssl)
         mosquitto_tls_insecure_set(mosq, true); // Skip certificate validation
     mosquitto_connect_callback_set(mosq, mqtt_connect_callback);
-    if ((result = mosquitto_connect(mosq, host, port, MQTT_CONNECT_TIMEOUT)) != MOSQ_ERR_SUCCESS) {
-        fprintf(stderr, "mqtt: error connecting to broker: %s\n", mosquitto_strerror(result));
-        mosquitto_destroy(mosq);
-        mosq = NULL;
-        return false;
-    }
+    mosquitto_disconnect_callback_set(mosq, mqtt_disconnect_callback);
+    mosquitto_reconnect_delay_set(mosq, MQTT_RECONNECT_DELAY, MQTT_RECONNECT_DELAY_MAX, true);
+    // A failed DNS lookup or unreachable broker at startup must NOT abort the process
+    // (e.g. the monitored host may simply be down). connect_async still resolves the
+    // address up front, so a failure here is non-fatal: keep going and let mqtt_poll()
+    // retry until the broker appears. connect_async stores host/port for the retries.
+    if ((result = mosquitto_connect_async(mosq, host, port, MQTT_CONNECT_TIMEOUT)) != MOSQ_ERR_SUCCESS)
+        fprintf(stderr, "mqtt: broker not reachable yet (%s); will keep retrying\n", mosquitto_strerror(result));
     if ((result = mosquitto_loop_start(mosq)) != MOSQ_ERR_SUCCESS) {
         fprintf(stderr, "mqtt: error starting loop: %s\n", mosquitto_strerror(result));
         mosquitto_disconnect(mosq);
@@ -104,6 +142,21 @@ bool mqtt_begin(const MqttConfig *config) {
         return false;
     }
     return true;
+}
+
+// Call periodically from the main loop. While disconnected, trigger a (non-blocking)
+// reconnection attempt, self-throttled so a persistently-down broker doesn't spin.
+void mqtt_poll(void) {
+    static time_t last_attempt = 0;
+    if (!mosq || mqtt_connected)
+        return;
+    const time_t now = time(NULL);
+    if (last_attempt != 0 && (now - last_attempt) < MQTT_RECONNECT_DELAY_MAX)
+        return;
+    last_attempt = now;
+    const int result = mosquitto_reconnect_async(mosq);
+    if (result != MOSQ_ERR_SUCCESS && mosq_debug)
+        fprintf(stderr, "mqtt: reconnect attempt failed (%s); will retry\n", mosquitto_strerror(result));
 }
 
 void mqtt_end(void) {
@@ -117,6 +170,8 @@ void mqtt_end(void) {
         mosquitto_destroy(mosq);
         mosq = NULL;
     }
+    mqtt_connected = false;
+    mqtt_subscription_count = 0;
     mosquitto_lib_cleanup();
 }
 
@@ -153,12 +208,15 @@ void mqtt_subscribe_callback(struct mosquitto *m, void *obj __attribute__((unuse
 bool mqtt_subscribe(const char *topic) {
     if (!mosq)
         return false;
-    const int result = mosquitto_subscribe(mosq, NULL, topic, MQTT_SUBSCRIBE_QOS);
-    if (result != MOSQ_ERR_SUCCESS) {
-        fprintf(stderr, "mqtt: subscribe failed '%s': %s\n", topic, mosquitto_strerror(result));
+    if (mqtt_subscription_count >= MQTT_MAX_SUBSCRIPTIONS) {
+        fprintf(stderr, "mqtt: too many subscriptions (max %d)\n", MQTT_MAX_SUBSCRIPTIONS);
         return false;
     }
-    printf("mqtt: subscribed '%s' (QoS %d)\n", topic, MQTT_SUBSCRIBE_QOS);
+    // Record it; the connect callback (re)applies all recorded subscriptions. If we are
+    // already connected, apply it now too so late subscriptions take effect immediately.
+    mqtt_subscriptions[mqtt_subscription_count++] = topic;
+    if (mqtt_connected)
+        mqtt_subscribe_apply(topic);
     return true;
 }
 
