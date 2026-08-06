@@ -1,47 +1,84 @@
 
+#
+# sudo apt install libmosquitto-dev libcurl4-openssl-dev libsystemd-dev
+#
+
+##
+
 CC=gcc
-CFLAGS_DEFINES=
-CFLAGS_COMMON=-Wall -Wextra -Wpedantic
-CFLAGS_STRICT=-Werror \
-    -Wstrict-prototypes \
-    -Wold-style-definition \
-    -Wcast-align -Wcast-qual -Wconversion \
+CFLAGS_COMMON=\
+    -Wfloat-conversion -Werror=float-conversion \
+    -Wall -Wextra -Werror -Wpedantic \
+    -Wstrict-prototypes -Wold-style-definition \
+    -Wno-cast-align -Wcast-qual -Wconversion \
     -Wfloat-equal -Wformat=2 -Wformat-security \
     -Winit-self -Wjump-misses-init \
     -Wlogical-op -Wmissing-include-dirs \
     -Wnested-externs -Wpointer-arith \
     -Wredundant-decls -Wshadow \
     -Wstrict-overflow=2 -Wswitch-default \
-    -Wundef \
     -Wunreachable-code -Wunused \
-    -Wwrite-strings
+    -Wwrite-strings \
+    -Wdouble-promotion \
+    -Wnull-dereference \
+    -Wduplicated-cond \
+    -Wduplicated-branches \
+    -Wrestrict \
+    -Wstringop-overflow \
+    -Wundef \
+    -Wvla \
+    -Wno-duplicated-branches \
+    -Wno-stringop-truncation
 CFLAGS_OPT=-O3
-CFLAGS_INCLUDES=
-CFLAGS=$(CFLAGS_COMMON) $(CFLAGS_STRICT) $(CFLAGS_DEFINES) $(CFLAGS_OPT) $(CFLAGS_INCLUDES)
+CFLAGS=$(CFLAGS_COMMON) $(CFLAGS_OPT)
 LDFLAGS=
 LIBS=-lmosquitto -lcurl -lsystemd
-HOSTNAME=$(shell hostname)
-CFG_SRC := $(if $(wildcard $(TARGET).$(HOSTNAME).cfg),$(TARGET).$(HOSTNAME).cfg,$(TARGET).cfg)
 
 ##
 
 TARGET=mqtt-watchdog
-SOURCES=include/config_linux.h include/mqtt_linux.h include/util_linux.h include/email_linux.h include/systemd_linux.h
+MAIN=$(TARGET).c
+SOURCES=\
+    include/config_linux.h include/mqtt_linux.h include/util_linux.h \
+    include/email_linux.h include/systemd_linux.h
+HOSTNAME:=$(shell hostname)
+CFG_SRC:=$(if $(wildcard $(TARGET).$(HOSTNAME).cfg),$(TARGET).$(HOSTNAME).cfg,$(TARGET).cfg)
 
 ##
 
 all: $(TARGET)
 
-$(TARGET): $(TARGET).c $(SOURCES)
-	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c $(LDFLAGS) $(LIBS)
-clean:
-	rm -f $(TARGET)
-format:
-	clang-format -i $(TARGET).c include/*.h
-test: $(TARGET)
-	./$(TARGET)
+$(TARGET): $(MAIN) $(SOURCES)
+	$(CC) $(CFLAGS) -o $(TARGET) $(MAIN) $(LDFLAGS) $(LIBS)
 
-.PHONY: all clean format test
+clean:
+	rm -f $(TARGET) $(TARGET).armhf
+format:
+	clang-format-19 -i $(MAIN) $(SOURCES)
+test: $(TARGET)
+	./$(TARGET) --config $(CFG_SRC)
+
+DEV_PACKAGES=libmosquitto-dev libcurl4-openssl-dev libsystemd-dev
+DEV_PACKAGES_ARMHF=$(addsuffix :armhf,$(DEV_PACKAGES))
+install-dev:
+	apt install -y $(DEV_PACKAGES)
+remove-dev:
+	apt purge -y $(DEV_PACKAGES)
+install-dev-armhf:
+	dpkg --add-architecture armhf
+	apt update
+	apt install -y gcc-arm-linux-gnueabihf $(DEV_PACKAGES_ARMHF)
+remove-dev-armhf:
+	apt purge -y gcc-arm-linux-gnueabihf $(DEV_PACKAGES_ARMHF)
+	dpkg --remove-architecture armhf
+	apt update
+
+CROSS_CC_ARMHF=arm-linux-gnueabihf-gcc
+$(TARGET).armhf: $(MAIN) $(SOURCES)
+	$(CROSS_CC_ARMHF) $(CFLAGS) -o $(TARGET).armhf $(MAIN) $(LDFLAGS) $(LIBS)
+armhf: $(TARGET).armhf
+
+.PHONY: all clean format test install-dev remove-dev install-dev-armhf remove-dev-armhf armhf
 
 ##
 
@@ -66,11 +103,10 @@ install_service: $(TARGET).service
 	$(call install_service_systemd,$(TARGET),$(INSTALL))
 install: install_target install_default install_service
 watch:
-	journalctl -u $(TARGET) -f
+	journalctl -u $(INSTALL) -f
 restart:
 	systemctl restart $(INSTALL)
 .PHONY: install install_target install_default install_service
 .PHONY: watch restart
 
 ##
-
