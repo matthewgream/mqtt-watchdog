@@ -14,7 +14,7 @@ typedef struct {
 } MqttConfig;
 
 typedef struct {
-    void (*message_processor)(const char *);
+    void (*message_processor)(const char *topic, const char *payload, int length);
 } mqtt_callback_data;
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -194,7 +194,7 @@ void mqtt_message_callback(struct mosquitto *m, void *obj, const struct mosquitt
         return;
     const mqtt_callback_data *callback_data = (mqtt_callback_data *)obj;
     if (callback_data && callback_data->message_processor)
-        callback_data->message_processor(message->topic);
+        callback_data->message_processor(message->topic, (const char *)message->payload, message->payloadlen);
 }
 
 void mqtt_subscribe_callback(struct mosquitto *m, void *obj __attribute__((unused)), int mid, int qos_count __attribute__((unused)),
@@ -208,6 +208,9 @@ void mqtt_subscribe_callback(struct mosquitto *m, void *obj __attribute__((unuse
 bool mqtt_subscribe(const char *topic) {
     if (!mosq)
         return false;
+    for (int i = 0; i < mqtt_subscription_count; i++)
+        if (strcmp(mqtt_subscriptions[i], topic) == 0)
+            return true; // already subscribed (several monitors can share a topic)
     if (mqtt_subscription_count >= MQTT_MAX_SUBSCRIPTIONS) {
         fprintf(stderr, "mqtt: too many subscriptions (max %d)\n", MQTT_MAX_SUBSCRIPTIONS);
         return false;
@@ -227,7 +230,7 @@ bool mqtt_unsubscribe(const char *topic) {
     return true;
 }
 
-bool mqtt_message_callback_register(void (*message_processor)(const char *)) {
+bool mqtt_message_callback_register(void (*message_processor)(const char *topic, const char *payload, int length)) {
     if (!mosq)
         return false;
     if (mosq_callback_data)

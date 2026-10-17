@@ -1,10 +1,37 @@
-Watchdog service for MQTT topics to alert (via. email) on inactivity thresholds, taking action (systemd service restart) if required.
+Watchdog service for MQTT topics to alert (via. email and ntfy) on inactivity thresholds, taking action (systemd service restart) if required,
+and on the content of JSON messages (e.g. zigbee2mqtt device alarms, network device scans).
 
-(0) read config file, and issue start up email notification 
+(0) read config file, and issue start up notification
 (1) monitor configured topics for messages: track reception/timestamp
 (2) if no message received on topic by
-  (a) level 1 threshold, issue alert email notification
-  (b) level 2 threshold, issue alert email notification and trigger systemd service restart
-(3) output periodic stats
+  (a) level 1 threshold, issue alert notification
+  (b) level 2 threshold, issue alert notification and trigger systemd service restart
+  (c) with topic.N.recover=true, issue a notification when messages resume
+(3) watch configured alerts: an entity alerts while a JSON field has a given value
+  (a) after it has held for alert.N.hold, issue alert notification
+  (b) every alert.N.repeat while it holds, issue a reminder
+  (c) when it clears, issue a recovery notification (alert.N.recover, default true)
+(4) output periodic stats
 
+Notifications go to each configured channel: email (email-*), and ntfy (ntfy-server, ntfy-topic, ntfy-token), with a priority
+(min, low, default, high, urgent: topic.N.priority, alert.N.priority) and tags (emoji shortcodes: alert.N.tags).
 
+Alerts (alert.N.*):
+
+  topic      subscription, + and # wildcards allowed
+  field      JSON field tested
+  equals     value of the field that means alerting (as text: true, offline, ...)
+  name       label in notifications (default: the field)
+  array      optional: field holding an array of entries, each tracked on its own, named by
+  key          its key field
+  flags      optional: field of each entry holding flags; only entries flagged notifiable(hold/repeat) are watched,
+               with those thresholds, and not those flagged ignore (as devices-known.conf)
+  since      optional: field holding the local time the condition began (YYYY-MM-DD HH:MM:SS), e.g. last_seen
+  details    optional: comma-separated fields copied into notifications
+  hold       how long it must hold before alerting (600, 45s, 30m, 3h, 1d; default 0)
+  repeat     reminder interval while it holds (default 0: none)
+  recover    notify when it clears (default true)
+
+The entity is the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device), or each array entry.
+A field absent from a message leaves the entity alone, so zigbee2mqtt/+ with field smoke only watches devices
+that report smoke. Instance configs (mqtt-watchdog-<instance>.cfg) hold credentials and are not committed.

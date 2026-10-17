@@ -1,6 +1,6 @@
 
 #
-# sudo apt install libmosquitto-dev libcurl4-openssl-dev libsystemd-dev
+# sudo apt install libmosquitto-dev libcurl4-openssl-dev libsystemd-dev libjson-c-dev
 #
 
 ##
@@ -32,7 +32,7 @@ CFLAGS_COMMON=\
 CFLAGS_OPT=-O3
 CFLAGS=$(CFLAGS_COMMON) $(CFLAGS_OPT)
 LDFLAGS=
-LIBS=-lmosquitto -lcurl -lsystemd
+LIBS=-lmosquitto -lcurl -lsystemd -ljson-c -lpthread
 
 ##
 
@@ -58,7 +58,7 @@ format:
 test: $(TARGET)
 	./$(TARGET) --config $(CFG_SRC)
 
-DEV_PACKAGES=libmosquitto-dev libcurl4-openssl-dev libsystemd-dev
+DEV_PACKAGES=libmosquitto-dev libcurl4-openssl-dev libsystemd-dev libjson-c-dev
 DEV_PACKAGES_ARMHF=$(addsuffix :armhf,$(DEV_PACKAGES))
 install-dev:
 	apt install -y $(DEV_PACKAGES)
