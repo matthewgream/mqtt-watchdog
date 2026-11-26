@@ -7,11 +7,31 @@
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
+// The system bus, or else systemd's own socket, as systemctl does as root: a host may run without D-Bus (vader masks
+// it, to save memory), and the restart failed there with "system bus connection failed: No such file or directory".
+static int __systemd_bus_open(sd_bus **bus) {
+    const int r = sd_bus_open_system(bus);
+    if (r >= 0)
+        return r;
+    sd_bus *direct = NULL;
+    int rd = sd_bus_new(&direct);
+    if (rd >= 0)
+        rd = sd_bus_set_address(direct, "unix:path=/run/systemd/private");
+    if (rd >= 0)
+        rd = sd_bus_start(direct);
+    if (rd < 0) {
+        sd_bus_unref(direct);
+        return r;
+    }
+    *bus = direct;
+    return rd;
+}
+
 bool systemd_service_restart(const char *service_name) {
     sd_bus *bus = NULL;
-    int r = sd_bus_open_system(&bus);
+    int r = __systemd_bus_open(&bus);
     if (r < 0) {
-        fprintf(stderr, "systemd_service_restart: system bus connection failed: %s\n", strerror(-r));
+        fprintf(stderr, "systemd_service_restart: system bus connection failed (and systemd's own socket): %s\n", strerror(-r));
         return false;
     }
     sd_bus_error error = SD_BUS_ERROR_NULL;
