@@ -36,6 +36,11 @@ The entity is the part of the topic matched by wildcards (zigbee2mqtt/+ -> the d
 A field absent from a message leaves the entity alone, so zigbee2mqtt/+ with field smoke only watches devices
 that report smoke.
 
+Notifications: each one also goes to MQTT, as JSON, not retained (QoS 1), on mqtt-topic - by default
+system/alerts/<hostname>; given empty, none: {timestamp, host, watchdog (email-name), kind, subject, entity,
+priority, tags, title, message}. kind: startup; quiet, quiet-restart, resumed (a topic: subject is the topic); alert,
+reminder, recovered (an alert: subject is its name, entity what it's about). So an archive of the broker keeps them.
+
 Install: each host has one watchdog, its config mqtt-watchdog.<hostname>.cfg (it holds credentials, so it isn't
 committed). make install installs it as /etc/default/watchdogmqtt (600), the binary as /usr/local/bin/watchdogmqtt and
 watchdogmqtt.service, and restarts it; with no config for the host it stops - the template, mqtt-watchdog.cfg, is never

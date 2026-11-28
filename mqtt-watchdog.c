@@ -23,6 +23,7 @@
 
 #define MQTT_CLIENT_DEFAULT "mqtt-watchdog"
 #define MQTT_SERVER_DEFAULT "mqtt://localhost"
+#define MQTT_TOPIC_PREFIX_DEFAULT "system/alerts" // the notifications' topic: <prefix>/<hostname>, unless mqtt-topic is given
 
 #define EMAIL_SMTP_DEFAULT "smtp://localhost:25"
 #define EMAIL_USERNAME_DEFAULT ""
@@ -61,15 +62,26 @@
 
 #define MQTT_CONNECT_TIMEOUT 60
 #define MQTT_SUBSCRIBE_QOS 0
+#define MQTT_PUBLISH_QOS 1 // the notifications: each one an event, for the archive
 
 #include "include/mqtt_linux.h"
 
 MqttConfig mqttConfig;
+char mqtt_topic[256] = "", mqtt_hostname[64] = "";
 
 bool mqtt_config(void) {
     mqttConfig.server = config_get_string("mqtt-server", MQTT_SERVER_DEFAULT);
     mqttConfig.client = config_get_string("mqtt-client", MQTT_CLIENT_DEFAULT);
     mqttConfig.debug = config_get_bool("debug", false);
+    if (gethostname(mqtt_hostname, sizeof(mqtt_hostname) - 1) != 0)
+        snprintf(mqtt_hostname, sizeof(mqtt_hostname), "%s", "unknown");
+    // given and empty: the notifications aren't published
+    const char *topic = config_get_string("mqtt-topic", NULL);
+    if (topic != NULL)
+        snprintf(mqtt_topic, sizeof(mqtt_topic), "%s", topic);
+    else
+        snprintf(mqtt_topic, sizeof(mqtt_topic), "%s/%s", MQTT_TOPIC_PREFIX_DEFAULT, mqtt_hostname);
+    printf("mqtt: notifications %s%s%s\n", mqtt_topic[0] != '\0' ? "published to '" : "not published", mqtt_topic, mqtt_topic[0] != '\0' ? "'" : "");
     return true;
 }
 
@@ -138,6 +150,16 @@ int ntfy_priority(const char *priority) {
     return (number >= 1 && number <= 5) ? number : 3;
 }
 
+// "a,b,c" -> ["a","b","c"]
+json_object *tags_array(const char *tags) {
+    json_object *list = json_object_new_array();
+    char buffer[CONFIG_MAX_STRING];
+    snprintf(buffer, sizeof(buffer), "%s", tags);
+    for (char *save = NULL, *tag = strtok_r(buffer, ",", &save); tag != NULL; tag = strtok_r(NULL, ",", &save))
+        json_object_array_add(list, json_object_new_string(tag));
+    return list;
+}
+
 size_t __ntfy_response_discard(char *buffer __attribute__((unused)), size_t size, size_t nitems, void *userdata __attribute__((unused))) { return size * nitems; }
 
 bool action_ntfy_notification(const char *priority, const char *tags, const char *title, const char *content) {
@@ -149,14 +171,8 @@ bool action_ntfy_notification(const char *priority, const char *tags, const char
     json_object_object_add(message, "title", json_object_new_string(title));
     json_object_object_add(message, "message", json_object_new_string(strlen(content) > 0 ? content : title));
     json_object_object_add(message, "priority", json_object_new_int(ntfy_priority(priority)));
-    if (tags != NULL && *tags != '\0') {
-        json_object *list = json_object_new_array();
-        char buffer[CONFIG_MAX_STRING];
-        snprintf(buffer, sizeof(buffer), "%s", tags);
-        for (char *save = NULL, *tag = strtok_r(buffer, ",", &save); tag != NULL; tag = strtok_r(NULL, ",", &save))
-            json_object_array_add(list, json_object_new_string(tag));
-        json_object_object_add(message, "tags", list);
-    }
+    if (tags != NULL && *tags != '\0')
+        json_object_object_add(message, "tags", tags_array(tags));
     bool result = false;
     CURL *curl = curl_easy_init();
     if (curl) {
@@ -201,8 +217,36 @@ bool action_ntfy_config(void) {
 bool action_ntfy_begin(void) { return true; }
 void action_ntfy_end(void) {}
 
-// every notification goes to each channel that is configured
-bool notify(const char *priority, const char *tags, const char *title, const char *content) {
+// each notification published as JSON (mqtt-topic: system/alerts/<hostname>), not retained - so the archive keeps them:
+// kind (startup; quiet, quiet-restart, resumed: a topic; alert, reminder, recovered: an alert), subject (the topic, or
+// the alert's name), entity (the alert's), priority, tags, title, message
+void action_mqtt_notification(const char *kind, const char *subject, const char *entity, const char *priority, const char *tags, const char *title,
+                              const char *content) {
+    if (mqtt_topic[0] == '\0')
+        return;
+    json_object *message = json_object_new_object();
+    json_object_object_add(message, "timestamp", json_object_new_int64((int64_t)time(NULL)));
+    json_object_object_add(message, "host", json_object_new_string(mqtt_hostname));
+    json_object_object_add(message, "watchdog", json_object_new_string(emailConfig.name));
+    json_object_object_add(message, "kind", json_object_new_string(kind));
+    if (subject != NULL && *subject != '\0')
+        json_object_object_add(message, "subject", json_object_new_string(subject));
+    if (entity != NULL && *entity != '\0')
+        json_object_object_add(message, "entity", json_object_new_string(entity));
+    json_object_object_add(message, "priority", json_object_new_string(priority));
+    if (tags != NULL && *tags != '\0')
+        json_object_object_add(message, "tags", tags_array(tags));
+    json_object_object_add(message, "title", json_object_new_string(title));
+    if (content != NULL && *content != '\0')
+        json_object_object_add(message, "message", json_object_new_string(content));
+    const char *text = json_object_to_json_string_ext(message, JSON_C_TO_STRING_PLAIN);
+    mqtt_send(mqtt_topic, text, (int)strlen(text));
+    json_object_put(message);
+}
+
+// every notification goes to each channel that is configured, and to MQTT
+bool notify(const char *kind, const char *subject, const char *entity, const char *priority, const char *tags, const char *title, const char *content) {
+    action_mqtt_notification(kind, subject, entity, priority, tags, title, content);
     const bool email = action_email_notification(title, content);
     const bool ntfy = action_ntfy_notification(priority, tags, title, content);
     return email && ntfy;
@@ -275,7 +319,7 @@ bool topic_process(void) {
         if (seconds_since_last >= monitor->restart_seconds && !monitor->restarted) {
             printf("topic: restart threshold exceeded for '%s' (%ld seconds)\n", monitor->topic, seconds_since_last);
             snprintf(subject, sizeof(subject), "Alert '%s' level-2 timeout (%ld seconds) [notify+restart]", monitor->topic, seconds_since_last);
-            notify(monitor->priority, "rotating_light", subject, "");
+            notify("quiet-restart", monitor->topic, NULL, monitor->priority, "rotating_light", subject, "");
             action_systemd_service_restart(monitor->service_name);
             monitor->warned = true;
             monitor->restarted = true;
@@ -287,7 +331,7 @@ bool topic_process(void) {
         else if (seconds_since_last >= monitor->warning_seconds && !monitor->warned) {
             printf("topic: warning threshold exceeded for '%s' (%ld seconds)\n", monitor->topic, seconds_since_last);
             snprintf(subject, sizeof(subject), "Alert '%s' level-1 timeout (%ld seconds) [notify]", monitor->topic, seconds_since_last);
-            notify(monitor->priority, "warning", subject, "");
+            notify("quiet", monitor->topic, NULL, monitor->priority, "warning", subject, "");
             monitor->warned = true;
             monitor->level1_timeouts++;
             monitor->level1_timelast = now;
@@ -297,7 +341,7 @@ bool topic_process(void) {
             if (monitor->warned && monitor->recover) {
                 printf("topic: messages resumed for '%s' (silent %ld seconds)\n", monitor->topic, monitor->silent_for);
                 snprintf(subject, sizeof(subject), "Recovery '%s' (silent %ld seconds)", monitor->topic, monitor->silent_for);
-                notify("default", "white_check_mark", subject, "");
+                notify("resumed", monitor->topic, NULL, "default", "white_check_mark", subject, "");
             }
             monitor->warned = monitor->restarted = false;
         }
@@ -692,7 +736,8 @@ void alert_receive_message(const char *topic, const char *payload, const int len
 bool alert_process(void) {
     const time_t now = time(NULL);
     for (int i = 0; i < MAX_ALERT_ENTITIES; i++) {
-        char priority[16] = "", tags[64] = "", title[256] = "", content[1024] = "", duration[32];
+        char priority[16] = "", tags[64] = "", title[256] = "", content[1024] = "", duration[32], subject[128] = "", who[128] = "";
+        const char *kind = "";
         pthread_mutex_lock(&alert_mutex);
         AlertEntity *entity = &alert_entities[i];
         if (entity->rule >= 0) {
@@ -705,6 +750,7 @@ bool alert_process(void) {
                 snprintf(priority, sizeof(priority), "%s", rule->priority);
                 snprintf(tags, sizeof(tags), "%s", rule->tags);
                 snprintf(title, sizeof(title), "%s '%s'", rule->name, entity->name);
+                kind = "alert";
                 snprintf(content, sizeof(content), "%s is '%s', for %s\n%s", rule->field, entity->value, duration, entity->details);
             } else if (entity->notified && entity->active && entity->repeat > 0 && now - entity->notified_last >= entity->repeat) {
                 entity->notified_last = now;
@@ -713,6 +759,7 @@ bool alert_process(void) {
                 snprintf(priority, sizeof(priority), "%s", rule->priority);
                 snprintf(tags, sizeof(tags), "%s", rule->tags);
                 snprintf(title, sizeof(title), "%s '%s' (reminder #%u)", rule->name, entity->name, entity->notified_count - 1);
+                kind = "reminder";
                 snprintf(content, sizeof(content), "%s is '%s', for %s\n%s", rule->field, entity->value, duration, entity->details);
             } else if (!entity->active && !entity->pending) {
                 if (entity->notified && rule->recover) {
@@ -720,16 +767,21 @@ bool alert_process(void) {
                     snprintf(priority, sizeof(priority), "%s", "default");
                     snprintf(tags, sizeof(tags), "%s", "white_check_mark");
                     snprintf(title, sizeof(title), "Recovered: %s '%s'", rule->name, entity->name);
+                    kind = "recovered";
                     snprintf(content, sizeof(content), "%s is '%s', after %s\n%s", rule->field, entity->cleared, duration, entity->details);
                 }
                 entity->rule = -1; // cleared (or cleared before its hold was up): forget it
             }
             entity->pending = false;
+            if (title[0] != '\0') {
+                snprintf(subject, sizeof(subject), "%s", rule->name);
+                snprintf(who, sizeof(who), "%s", entity->name);
+            }
         }
         pthread_mutex_unlock(&alert_mutex);
         if (title[0] != '\0') {
             printf("alert: %s\n", title);
-            notify(priority, tags, title, content);
+            notify(kind, subject, who, priority, tags, title, content);
             alert_notified_total++;
         }
     }
@@ -836,6 +888,7 @@ bool startup_notification(void) {
     char title[256];
     snprintf(title, sizeof(title), "%s: startup", emailConfig.name);
     action_ntfy_notification("min", "", title, "");
+    action_mqtt_notification("startup", NULL, NULL, "min", "", title, "");
     return true;
 }
 
@@ -847,6 +900,7 @@ time_t report_period, report_last = 0;
 const struct option config_options[] = {{"config", required_argument, 0, 0},      // config
                                         {"mqtt-client", required_argument, 0, 0}, // mqtt
                                         {"mqtt-server", required_argument, 0, 0},
+                                        {"mqtt-topic", required_argument, 0, 0}, // the notifications' topic
                                         {"email-name", required_argument, 0, 0}, // email
                                         {"email-from", required_argument, 0, 0},
                                         {"email-to", required_argument, 0, 0},
