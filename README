@@ -34,4 +34,9 @@ Alerts (alert.N.*):
 
 The entity is the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device), or each array entry.
 A field absent from a message leaves the entity alone, so zigbee2mqtt/+ with field smoke only watches devices
-that report smoke. Instance configs (mqtt-watchdog-<instance>.cfg) hold credentials and are not committed.
+that report smoke.
+
+Install: each host has one watchdog, its config mqtt-watchdog.<hostname>.cfg (it holds credentials, so it isn't
+committed). make install installs it as /etc/default/watchdogmqtt (600), the binary as /usr/local/bin/watchdogmqtt and
+watchdogmqtt.service, and restarts it; with no config for the host it stops - the template, mqtt-watchdog.cfg, is never
+installed. One watchdog watches one broker: what it needs from other hosts is bridged into that one.

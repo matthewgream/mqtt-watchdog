@@ -96,12 +96,15 @@ define install_service_systemd
 endef
 install_target: $(TARGET)
 	install -m 755 $(TARGET) $(DIR_INSTALL)/$(INSTALL)
+# the host's own config, mqtt-watchdog.<hostname>.cfg - never the template, which would run (and fail its email login,
+# every few seconds) as this host's watchdog; 600: it holds the email password and the ntfy token
 install_default: $(CFG_SRC)
+	@if [ "$(CFG_SRC)" = "$(TARGET).cfg" ]; then echo "no $(TARGET).$(HOSTNAME).cfg: write this host's config (from $(TARGET).cfg) first"; exit 1; fi
 	@echo "installing config from $(CFG_SRC)"
-	install -m 644 $(CFG_SRC) $(DIR_DEFAULT)/$(INSTALL)
+	install -m 600 $(CFG_SRC) $(DIR_DEFAULT)/$(INSTALL)
 install_service: $(TARGET).service
 	$(call install_service_systemd,$(TARGET),$(INSTALL))
-install: install_target install_default install_service
+install: install_default install_target install_service
 watch:
 	journalctl -u $(INSTALL) -f
 restart:

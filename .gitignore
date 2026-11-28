@@ -1,3 +1,6 @@
 mqtt-watchdog
-# instance configs hold credentials
+# the hosts' configs hold credentials (and the configs of the instances they replaced, and backups)
+mqtt-watchdog.*.cfg
 mqtt-watchdog-*.cfg
+*.cfg.bak*
+*.cfg.retired*

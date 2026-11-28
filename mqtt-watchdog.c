@@ -828,14 +828,14 @@ void message_receive(const char *topic, const char *payload, const int length) {
     alert_receive_message(topic, payload, length);
 }
 
+// neither a failed email (a refused login, the mail server or the internet away) nor an unreachable ntfy server stops the
+// watchdog: exiting would take every other alert with it, and systemd's restarts would retry the login every few seconds
 bool startup_notification(void) {
-    if (!action_email_notification("Startup", "")) {
-        fprintf(stderr, "watchdog: failed send startup email\n");
-        return false;
-    }
+    if (!action_email_notification("Startup", ""))
+        fprintf(stderr, "watchdog: failed send startup email (continuing)\n");
     char title[256];
     snprintf(title, sizeof(title), "%s: startup", emailConfig.name);
-    action_ntfy_notification("min", "", title, ""); // an unreachable ntfy server must not stop the watchdog
+    action_ntfy_notification("min", "", title, "");
     return true;
 }
 
