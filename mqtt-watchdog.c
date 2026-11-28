@@ -390,10 +390,11 @@ void topic_end(void) {
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
 // Alerts watch what JSON messages say rather than whether they arrive. An entity is alerting while a field has a given value
-// (`equals`), or a number below or above one (`below`, `above`: a lock's battery below 25);
+// (`equals`), or a number below or above one (`below`, `above`: a lock's battery below 25); `field=.` is the whole message, for
+// one that isn't JSON (a bridge's status: online, offline);
 // notifications go out once that has held for `hold`, as a reminder every `repeat` while it lasts, and when it clears. The entity is
-// the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device name), or, for a message holding an array of entries
-// (devices/scan), each entry named by its `key` field. With `flags`, an entry is only watched when that field holds a
+// the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device name), or the message's `key` field (a room's name), or,
+// for a message holding an array of entries (devices/scan), each entry named by its `key` field. With `flags`, an entry is only watched when that field holds a
 // notifiable(hold/repeat) flag -- which also gives its thresholds -- and not 'ignore', as in devices-known.conf.
 //
 // Messages arrive on the mqtt thread and only update entity state; the main loop sends the notifications (which can take seconds).
@@ -408,7 +409,7 @@ typedef struct {
     const char *name;     // label in notifications, e.g. "Smoke alarm" (default: the field)
     const char *topic;    // subscription, + and # wildcards allowed
     const char *array;    // optional: field holding an array of entries, each its own entity
-    const char *key;      // with array: entry field naming the entity
+    const char *key;      // field naming the entity: in each entry, with array; else in the message (else: the topic's wildcards)
     const char *field;    // field tested
     const char *equals;   // value of the field that means alerting (as text: true, offline, ...)
     bool has_below, has_above;
@@ -593,9 +594,10 @@ bool alert_matches(const AlertRule *rule, const char *value) {
     return false;
 }
 
-void alert_update(const int index, const char *name, json_object *object) {
+// the value tested: `whole` for a rule on the whole message (field=.), else the object's field
+void alert_update(const int index, const char *name, json_object *object, const char *whole) {
     const AlertRule *rule = &alert_rules[index];
-    const char *value = json_field_string(object, rule->field);
+    const char *value = strcmp(rule->field, ".") == 0 ? whole : json_field_string(object, rule->field);
     double number;
     if (value == NULL)
         return; // not reported by this one
@@ -648,17 +650,21 @@ void alert_receive_message(const char *topic, const char *payload, const int len
     if (text == NULL)
         return;
     json_object *root = json_tokener_parse(text);
-    free(text);
-    if (root == NULL) {
-        if (alert_debug)
-            printf("alert: '%s': payload is not JSON\n", topic);
-        return;
-    }
+    // the whole message as text, for field=.: a JSON string's own text ("online"), else the payload as it came (online)
+    const char *whole = root != NULL && json_object_is_type(root, json_type_string) ? json_object_get_string(root) : text;
+    if (root == NULL && alert_debug)
+        printf("alert: '%s': payload is not JSON\n", topic);
     for (int i = 0; i < alert_rule_count; i++) {
         if (!matches[i])
             continue;
         const AlertRule *rule = &alert_rules[i];
-        if (rule->array != NULL) {
+        char name[ALERT_NAME_MAX];
+        if (strcmp(rule->field, ".") == 0) {
+            alert_entity_name(rule->topic, topic, name, sizeof(name));
+            alert_update(i, name, json_object_is_type(root, json_type_object) ? root : NULL, whole);
+        } else if (root == NULL) {
+            continue;
+        } else if (rule->array != NULL) {
             json_object *array;
             if (!json_object_object_get_ex(root, rule->array, &array) || !json_object_is_type(array, json_type_array))
                 continue;
@@ -667,15 +673,20 @@ void alert_receive_message(const char *topic, const char *payload, const int len
                 json_object *entry = json_object_array_get_idx(array, j);
                 const char *key = entry != NULL ? json_field_string(entry, rule->key) : NULL;
                 if (key != NULL)
-                    alert_update(i, key, entry);
+                    alert_update(i, key, entry, NULL);
             }
         } else if (json_object_is_type(root, json_type_object)) {
-            char name[ALERT_NAME_MAX];
-            alert_entity_name(rule->topic, topic, name, sizeof(name));
-            alert_update(i, name, root);
+            const char *key = rule->key != NULL ? json_field_string(root, rule->key) : NULL;
+            if (key != NULL && strcmp(key, "null") != 0)
+                snprintf(name, sizeof(name), "%s", key);
+            else
+                alert_entity_name(rule->topic, topic, name, sizeof(name));
+            alert_update(i, name, root, NULL);
         }
     }
-    json_object_put(root);
+    if (root != NULL)
+        json_object_put(root);
+    free(text);
 }
 
 bool alert_process(void) {
