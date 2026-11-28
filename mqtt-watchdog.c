@@ -389,7 +389,8 @@ void topic_end(void) {
 // -----------------------------------------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
-// Alerts watch what JSON messages say rather than whether they arrive. An entity is alerting while a field has a given value;
+// Alerts watch what JSON messages say rather than whether they arrive. An entity is alerting while a field has a given value
+// (`equals`), or a number below or above one (`below`, `above`: a lock's battery below 25);
 // notifications go out once that has held for `hold`, as a reminder every `repeat` while it lasts, and when it clears. The entity is
 // the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device name), or, for a message holding an array of entries
 // (devices/scan), each entry named by its `key` field. With `flags`, an entry is only watched when that field holds a
@@ -410,6 +411,8 @@ typedef struct {
     const char *key;      // with array: entry field naming the entity
     const char *field;    // field tested
     const char *equals;   // value of the field that means alerting (as text: true, offline, ...)
+    bool has_below, has_above;
+    double below, above; // or: the field a number below / above this means alerting
     const char *flags;    // optional: field holding flags, see above
     const char *since;    // optional: field with the local time the condition began (YYYY-MM-DD HH:MM:SS)
     const char *details;  // optional: comma-separated fields copied into notifications
@@ -574,18 +577,37 @@ AlertEntity *alert_entity_find(const int rule, const char *name, const bool add)
     return free_slot;
 }
 
+// a number, all of the text: false for anything else
+bool alert_number(const char *value, double *number) {
+    char *end;
+    *number = strtod(value, &end);
+    return end != value && *end == '\0';
+}
+
+bool alert_matches(const AlertRule *rule, const char *value) {
+    double number;
+    if (rule->equals != NULL && strcmp(value, rule->equals) == 0)
+        return true;
+    if ((rule->has_below || rule->has_above) && alert_number(value, &number))
+        return (rule->has_below && number < rule->below) || (rule->has_above && number > rule->above);
+    return false;
+}
+
 void alert_update(const int index, const char *name, json_object *object) {
     const AlertRule *rule = &alert_rules[index];
     const char *value = json_field_string(object, rule->field);
+    double number;
     if (value == NULL)
         return; // not reported by this one
+    if (rule->equals == NULL && !alert_number(value, &number))
+        return; // a number compared, and no number (null: not known just now) - which neither alerts nor clears
     time_t hold = rule->hold, repeat = rule->repeat;
     if (rule->flags != NULL) {
         const char *flags = json_field_string(object, rule->flags);
         if (flags == NULL || strstr(flags, "ignore") != NULL || !parse_notifiable(flags, &hold, &repeat))
             return;
     }
-    const bool matched = strcmp(value, rule->equals) == 0;
+    const bool matched = alert_matches(rule, value);
     const time_t now = time(NULL);
     pthread_mutex_lock(&alert_mutex);
     AlertEntity *entity = alert_entity_find(index, name, matched);
@@ -732,6 +754,13 @@ bool alert_config(void) {
         rule->topic = topic;
         rule->field = alert_config_string(i, "field", NULL);
         rule->equals = alert_config_string(i, "equals", NULL);
+        const char *below = alert_config_string(i, "below", NULL), *above = alert_config_string(i, "above", NULL);
+        rule->has_below = below != NULL;
+        rule->has_above = above != NULL;
+        if ((rule->has_below && !alert_number(below, &rule->below)) || (rule->has_above && !alert_number(above, &rule->above))) {
+            fprintf(stderr, "alert: alert.%d: below and above take a number\n", i);
+            return false;
+        }
         rule->name = alert_config_string(i, "name", rule->field);
         rule->array = alert_config_string(i, "array", NULL);
         rule->key = alert_config_string(i, "key", NULL);
@@ -744,12 +773,20 @@ bool alert_config(void) {
         rule->repeat = parse_duration(alert_config_string(i, "repeat", NULL), 0);
         const char *recover = alert_config_string(i, "recover", NULL);
         rule->recover = recover == NULL ? ALERT_RECOVER_DEFAULT : (strcasecmp(recover, "true") == 0 || strcmp(recover, "1") == 0);
-        if (rule->field == NULL || rule->equals == NULL || (rule->array != NULL && rule->key == NULL)) {
-            fprintf(stderr, "alert: alert.%d needs field and equals (and key, with array)\n", i);
+        if (rule->field == NULL || (rule->equals == NULL && !rule->has_below && !rule->has_above) || (rule->array != NULL && rule->key == NULL)) {
+            fprintf(stderr, "alert: alert.%d needs field and equals, below or above (and key, with array)\n", i);
             return false;
         }
-        printf("alert: watching '%s'%s%s%s%s: %s == '%s' (name='%s', hold=%lds, repeat=%lds, recover=%s, priority=%s%s%s)\n", rule->topic,
-               rule->array ? ", entries of " : "", rule->array ? rule->array : "", rule->array ? " by " : "", rule->array ? rule->key : "", rule->field, rule->equals,
+        char condition[128];
+        int length = 0;
+        if (rule->equals != NULL)
+            length += snprintf(condition + length, sizeof(condition) - (size_t)length, "%s == '%s'", rule->field, rule->equals);
+        if (rule->has_below)
+            length += snprintf(condition + length, sizeof(condition) - (size_t)length, "%s%s < %g", length ? " or " : "", rule->field, rule->below);
+        if (rule->has_above)
+            snprintf(condition + length, sizeof(condition) - (size_t)length, "%s%s > %g", length ? " or " : "", rule->field, rule->above);
+        printf("alert: watching '%s'%s%s%s%s: %s (name='%s', hold=%lds, repeat=%lds, recover=%s, priority=%s%s%s)\n", rule->topic,
+               rule->array ? ", entries of " : "", rule->array ? rule->array : "", rule->array ? " by " : "", rule->array ? rule->key : "", condition,
                rule->name, rule->hold, rule->repeat, rule->recover ? "true" : "false", rule->priority, rule->flags ? ", thresholds from " : "",
                rule->flags ? rule->flags : "");
         if (++alert_rule_count >= MAX_ALERTS) {
