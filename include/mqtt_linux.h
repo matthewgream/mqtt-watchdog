@@ -165,8 +165,10 @@ void mqtt_end(void) {
         mosq_callback_data = NULL;
     }
     if (mosq) {
-        mosquitto_loop_stop(mosq, true);
+        // disconnect first, and the network thread ends by itself: stopped by force, it's cancelled wherever it is, perhaps
+        // holding one of libmosquitto's locks, which mosquitto_disconnect then waits on for ever (it did, 2026-11-28)
         mosquitto_disconnect(mosq);
+        mosquitto_loop_stop(mosq, false);
         mosquitto_destroy(mosq);
         mosq = NULL;
     }

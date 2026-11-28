@@ -18,6 +18,11 @@ typedef struct {
 config_entry_t config_entries[CONFIG_MAX_ENTRIES];
 int config_entry_count = 0;
 
+// a token, password, secret or key is shown in the journal only as set
+static bool __config_is_secret(const char *name) {
+    return strstr(name, "token") != NULL || strstr(name, "pass") != NULL || strstr(name, "secret") != NULL || strstr(name, "key") != NULL;
+}
+
 void __config_set_value(const char *key, const char *value) {
     for (int i = 0; i < config_entry_count; i++)
         if (strcmp(config_entries[i].key, key) == 0) {
@@ -30,7 +35,7 @@ void __config_set_value(const char *key, const char *value) {
         config_entries[config_entry_count].value = strdup(value);
         config_entry_count++;
     } else
-        fprintf(stderr, "config: too many entries, ignoring %s=%s\n", key, value);
+        fprintf(stderr, "config: too many entries (%d), ignoring %s\n", CONFIG_MAX_ENTRIES, key);
 }
 
 const char *config_get_string(const char *key, const char *default_value) {
@@ -130,7 +135,7 @@ bool config_load(const char *config_file, int argc, char *argv[], const struct o
     for (int i = 1; options_long[i].name != NULL; i++) {
         const char *value = config_get_string(options_long[i].name, NULL);
         if (value != NULL)
-            printf(", %s='%s'", options_long[i].name, value);
+            printf(", %s='%s'", options_long[i].name, __config_is_secret(options_long[i].name) && *value ? "(set)" : value);
     }
     printf("\n");
     return true;
