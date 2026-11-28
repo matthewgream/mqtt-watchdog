@@ -394,7 +394,7 @@ void topic_end(void) {
 // one that isn't JSON (a bridge's status: online, offline);
 // notifications go out once that has held for `hold`, as a reminder every `repeat` while it lasts, and when it clears. The entity is
 // the part of the topic matched by wildcards (zigbee2mqtt/+ -> the device name), or the message's `key` field (a room's name), or,
-// for a message holding an array of entries (devices/scan), each entry named by its `key` field. With `flags`, an entry is only watched when that field holds a
+// for a message holding an array of entries (system/devices/scan), each entry named by its `key` field. With `flags`, an entry is only watched when that field holds a
 // notifiable(hold/repeat) flag -- which also gives its thresholds -- and not 'ignore', as in devices-known.conf.
 //
 // Messages arrive on the mqtt thread and only update entity state; the main loop sends the notifications (which can take seconds).
